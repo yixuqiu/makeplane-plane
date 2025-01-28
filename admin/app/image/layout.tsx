@@ -1,21 +1,15 @@
-"use client";
-
 import { ReactNode } from "react";
-// layouts
-import { AdminLayout } from "@/layouts";
-// lib
-import { AuthWrapper, InstanceWrapper } from "@/lib/wrappers";
+import { Metadata } from "next";
+import { AdminLayout } from "@/layouts/admin-layout";
 
 interface ImageLayoutProps {
   children: ReactNode;
 }
 
-const ImageLayout = ({ children }: ImageLayoutProps) => (
-  <InstanceWrapper>
-    <AuthWrapper>
-      <AdminLayout>{children}</AdminLayout>
-    </AuthWrapper>
-  </InstanceWrapper>
-);
+export const metadata: Metadata = {
+  title: "Images Settings - Plane Web",
+};
 
-export default ImageLayout;
+export default function ImageLayout({ children }: ImageLayoutProps) {
+  return <AdminLayout>{children}</AdminLayout>;
+}

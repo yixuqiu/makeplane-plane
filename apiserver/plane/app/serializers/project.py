@@ -4,46 +4,35 @@ from rest_framework import serializers
 # Module imports
 from .base import BaseSerializer, DynamicBaseSerializer
 from plane.app.serializers.workspace import WorkspaceLiteSerializer
-from plane.app.serializers.user import (
-    UserLiteSerializer,
-    UserAdminLiteSerializer,
-)
+from plane.app.serializers.user import UserLiteSerializer, UserAdminLiteSerializer
 from plane.db.models import (
     Project,
     ProjectMember,
     ProjectMemberInvite,
     ProjectIdentifier,
-    ProjectFavorite,
-    ProjectDeployBoard,
+    DeployBoard,
     ProjectPublicMember,
 )
 
 
 class ProjectSerializer(BaseSerializer):
-    workspace_detail = WorkspaceLiteSerializer(
-        source="workspace", read_only=True
-    )
+    workspace_detail = WorkspaceLiteSerializer(source="workspace", read_only=True)
+    inbox_view = serializers.BooleanField(read_only=True, source="intake_view")
 
     class Meta:
         model = Project
         fields = "__all__"
-        read_only_fields = [
-            "workspace",
-        ]
+        read_only_fields = ["workspace", "deleted_at"]
 
     def create(self, validated_data):
         identifier = validated_data.get("identifier", "").strip().upper()
         if identifier == "":
-            raise serializers.ValidationError(
-                detail="Project Identifier is required"
-            )
+            raise serializers.ValidationError(detail="Project Identifier is required")
 
         if ProjectIdentifier.objects.filter(
             name=identifier, workspace_id=self.context["workspace_id"]
         ).exists():
-            raise serializers.ValidationError(
-                detail="Project Identifier is taken"
-            )
+            raise serializers.ValidationError(detail="Project Identifier is taken")
         project = Project.objects.create(
             **validated_data, workspace_id=self.context["workspace_id"]
         )
@@ -82,9 +71,7 @@ class ProjectSerializer(BaseSerializer):
             return project
 
         # If not same fail update
-        raise serializers.ValidationError(
-            detail="Project Identifier is already taken"
-        )
+        raise serializers.ValidationError(detail="Project Identifier is already taken")
 
 
 class ProjectLiteSerializer(BaseSerializer):
@@ -95,6 +82,7 @@ class ProjectLiteSerializer(BaseSerializer):
             "identifier",
             "name",
             "cover_image",
+            "cover_image_url",
             "logo_props",
             "description",
         ]
@@ -115,8 +103,10 @@ class ProjectListSerializer(DynamicBaseSerializer):
     is_member = serializers.BooleanField(read_only=True)
     sort_order = serializers.FloatField(read_only=True)
     member_role = serializers.IntegerField(read_only=True)
-    is_deployed = serializers.BooleanField(read_only=True)
+    anchor = serializers.CharField(read_only=True)
     members = serializers.SerializerMethodField()
+    cover_image_url = serializers.CharField(read_only=True)
+    inbox_view = serializers.BooleanField(read_only=True, source="intake_view")
 
     def get_members(self, obj):
         project_members = getattr(obj, "members_list", None)
@@ -128,6 +118,7 @@ class ProjectListSerializer(DynamicBaseSerializer):
                     "member_id": member.member_id,
                     "member__display_name": member.member.display_name,
                     "member__avatar": member.member.avatar,
+                    "member__avatar_url": member.member.avatar_url,
                 }
                 for member in project_members
             ]
@@ -149,7 +140,7 @@ class ProjectDetailSerializer(BaseSerializer):
     is_member = serializers.BooleanField(read_only=True)
     sort_order = serializers.FloatField(read_only=True)
     member_role = serializers.IntegerField(read_only=True)
-    is_deployed = serializers.BooleanField(read_only=True)
+    anchor = serializers.CharField(read_only=True)
 
     class Meta:
         model = Project
@@ -197,16 +188,6 @@ class ProjectIdentifierSerializer(BaseSerializer):
         fields = "__all__"
 
 
-class ProjectFavoriteSerializer(BaseSerializer):
-    class Meta:
-        model = ProjectFavorite
-        fields = "__all__"
-        read_only_fields = [
-            "workspace",
-            "user",
-        ]
-
-
 class ProjectMemberLiteSerializer(BaseSerializer):
     member = UserLiteSerializer(read_only=True)
     is_subscribed = serializers.BooleanField(read_only=True)
@@ -217,28 +198,18 @@ class ProjectMemberLiteSerializer(BaseSerializer):
         read_only_fields = fields
 
 
-class ProjectDeployBoardSerializer(BaseSerializer):
+class DeployBoardSerializer(BaseSerializer):
     project_details = ProjectLiteSerializer(read_only=True, source="project")
-    workspace_detail = WorkspaceLiteSerializer(
-        read_only=True, source="workspace"
-    )
+    workspace_detail = WorkspaceLiteSerializer(read_only=True, source="workspace")
 
     class Meta:
-        model = ProjectDeployBoard
+        model = DeployBoard
         fields = "__all__"
-        read_only_fields = [
-            "workspace",
-            "project",
-            "anchor",
-        ]
+        read_only_fields = ["workspace", "project", "anchor"]
 
 
 class ProjectPublicMemberSerializer(BaseSerializer):
     class Meta:
         model = ProjectPublicMember
         fields = "__all__"
-        read_only_fields = [
-            "workspace",
-            "project",
-            "member",
-        ]
+        read_only_fields = ["workspace", "project", "member"]

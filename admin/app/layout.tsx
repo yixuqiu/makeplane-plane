@@ -1,48 +1,49 @@
 "use client";
 
 import { ReactNode } from "react";
-import { ThemeProvider } from "next-themes";
-// lib
-import { StoreProvider } from "@/lib/store-context";
-import { AppWrapper } from "@/lib/wrappers";
+import { ThemeProvider, useTheme } from "next-themes";
+import { SWRConfig } from "swr";
+// ui
+import { ADMIN_BASE_PATH, DEFAULT_SWR_CONFIG } from "@plane/constants";
+import { Toast } from "@plane/ui";
+import { resolveGeneralTheme } from "@plane/utils";
 // constants
-import { SITE_NAME, SITE_DESCRIPTION, SITE_URL, TWITTER_USER_NAME, SITE_KEYWORDS, SITE_TITLE } from "@/constants/seo";
+// helpers
+// lib
+import { InstanceProvider } from "@/lib/instance-provider";
+import { StoreProvider } from "@/lib/store-provider";
+import { UserProvider } from "@/lib/user-provider";
 // styles
 import "./globals.css";
 
-interface RootLayoutProps {
-  children: ReactNode;
-}
+const ToastWithTheme = () => {
+  const { resolvedTheme } = useTheme();
+  return <Toast theme={resolveGeneralTheme(resolvedTheme)} />;
+};
 
-const RootLayout = ({ children, ...pageProps }: RootLayoutProps) => {
-  const prefix = "/god-mode/";
-
+export default function RootLayout({ children }: { children: ReactNode }) {
+  const ASSET_PREFIX = ADMIN_BASE_PATH;
   return (
     <html lang="en">
       <head>
-        <title>{SITE_TITLE}</title>
-        <meta property="og:site_name" content={SITE_NAME} />
-        <meta property="og:title" content={SITE_TITLE} />
-        <meta property="og:url" content={SITE_URL} />
-        <meta name="description" content={SITE_DESCRIPTION} />
-        <meta property="og:description" content={SITE_DESCRIPTION} />
-        <meta name="keywords" content={SITE_KEYWORDS} />
-        <meta name="twitter:site" content={`@${TWITTER_USER_NAME}`} />
-        <link rel="apple-touch-icon" sizes="180x180" href={`${prefix}favicon/apple-touch-icon.png`} />
-        <link rel="icon" type="image/png" sizes="32x32" href={`${prefix}favicon/favicon-32x32.png`} />
-        <link rel="icon" type="image/png" sizes="16x16" href={`${prefix}favicon/favicon-16x16.png`} />
-        <link rel="manifest" href={`${prefix}site.webmanifest.json`} />
-        <link rel="shortcut icon" href={`${prefix}favicon/favicon.ico`} />
+        <link rel="apple-touch-icon" sizes="180x180" href={`${ASSET_PREFIX}/favicon/apple-touch-icon.png`} />
+        <link rel="icon" type="image/png" sizes="32x32" href={`${ASSET_PREFIX}/favicon/favicon-32x32.png`} />
+        <link rel="icon" type="image/png" sizes="16x16" href={`${ASSET_PREFIX}/favicon/favicon-16x16.png`} />
+        <link rel="manifest" href={`${ASSET_PREFIX}/site.webmanifest.json`} />
+        <link rel="shortcut icon" href={`${ASSET_PREFIX}/favicon/favicon.ico`} />
       </head>
       <body className={`antialiased`}>
-        <StoreProvider {...pageProps}>
-          <ThemeProvider themes={["light", "dark"]} defaultTheme="system" enableSystem>
-            <AppWrapper>{children}</AppWrapper>
-          </ThemeProvider>
-        </StoreProvider>
+        <ThemeProvider themes={["light", "dark"]} defaultTheme="system" enableSystem>
+          <ToastWithTheme />
+          <SWRConfig value={DEFAULT_SWR_CONFIG}>
+            <StoreProvider>
+              <InstanceProvider>
+                <UserProvider>{children}</UserProvider>
+              </InstanceProvider>
+            </StoreProvider>
+          </SWRConfig>
+        </ThemeProvider>
       </body>
     </html>
   );
-};
-
-export default RootLayout;
+}

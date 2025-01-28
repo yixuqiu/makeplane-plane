@@ -13,15 +13,15 @@ MIDDLEWARE += ("debug_toolbar.middleware.DebugToolbarMiddleware",)  # noqa
 DEBUG_TOOLBAR_PATCH_SETTINGS = False
 
 # Only show emails in console don't send it to smtp
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
 
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,  # noqa
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
+        "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
     }
 }
 
@@ -29,19 +29,6 @@ INTERNAL_IPS = ("127.0.0.1",)
 
 MEDIA_URL = "/uploads/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "uploads")  # noqa
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost",
-    "http://127.0.0.1",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:4000",
-    "http://127.0.0.1:4000",
-    "http://localhost:3333",
-    "http://127.0.0.1:3333",
-]
-CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
-CORS_ALLOW_ALL_ORIGINS = True
 
 LOG_DIR = os.path.join(BASE_DIR, "logs")  # noqa
 
@@ -55,14 +42,14 @@ LOGGING = {
         "verbose": {
             "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
             "style": "{",
-        },
+        }
     },
     "handlers": {
         "console": {
             "level": "DEBUG",
             "class": "logging.StreamHandler",
             "formatter": "verbose",
-        },
+        }
     },
     "loggers": {
         "django.request": {
@@ -70,10 +57,6 @@ LOGGING = {
             "level": "DEBUG",
             "propagate": False,
         },
-        "plane": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
+        "plane": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
     },
 }

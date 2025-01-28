@@ -1,6 +1,6 @@
 # Python imports
 import uuid
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode
 
 # Django import
 from django.http import HttpResponseRedirect
@@ -18,7 +18,6 @@ from plane.authentication.adapter.error import (
 
 
 class GitHubOauthInitiateSpaceEndpoint(View):
-
     def get(self, request):
         # Get host and next path
         request.session["host"] = base_host(request=request, is_space=True)
@@ -30,18 +29,13 @@ class GitHubOauthInitiateSpaceEndpoint(View):
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "INSTANCE_NOT_CONFIGURED"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["INSTANCE_NOT_CONFIGURED"],
                 error_message="INSTANCE_NOT_CONFIGURED",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host(request=request, is_space=True),
-                "?" + urlencode(params),
-            )
+            url = f"{base_host(request=request, is_space=True)}?{urlencode(params)}"
             return HttpResponseRedirect(url)
 
         try:
@@ -54,15 +48,11 @@ class GitHubOauthInitiateSpaceEndpoint(View):
             params = e.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host(request=request),
-                "?" + urlencode(params),
-            )
+            url = f"{base_host(request=request, is_space=True)}?{urlencode(params)}"
             return HttpResponseRedirect(url)
 
 
 class GitHubCallbackSpaceEndpoint(View):
-
     def get(self, request):
         code = request.GET.get("code")
         state = request.GET.get("state")
@@ -71,54 +61,38 @@ class GitHubCallbackSpaceEndpoint(View):
 
         if state != request.session.get("state", ""):
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "GITHUB_OAUTH_PROVIDER_ERROR"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["GITHUB_OAUTH_PROVIDER_ERROR"],
                 error_message="GITHUB_OAUTH_PROVIDER_ERROR",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = f"{base_host(request=request, is_space=True)}?{urlencode(params)}"
             return HttpResponseRedirect(url)
 
         if not code:
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "GITHUB_OAUTH_PROVIDER_ERROR"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["GITHUB_OAUTH_PROVIDER_ERROR"],
                 error_message="GITHUB_OAUTH_PROVIDER_ERROR",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = f"{base_host(request=request, is_space=True)}?{urlencode(params)}"
             return HttpResponseRedirect(url)
 
         try:
-            provider = GitHubOAuthProvider(
-                request=request,
-                code=code,
-            )
+            provider = GitHubOAuthProvider(request=request, code=code)
             user = provider.authenticate()
             # Login the user and record his device info
-            user_login(request=request, user=user)
+            user_login(request=request, user=user, is_space=True)
             # Process workspace and project invitations
             # redirect to referer path
-            url = urljoin(base_host, str(next_path) if next_path else "/")
+            url = f"{base_host(request=request, is_space=True)}{str(next_path) if next_path else ''}"
             return HttpResponseRedirect(url)
         except AuthenticationException as e:
             params = e.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = f"{base_host(request=request, is_space=True)}?{urlencode(params)}"
             return HttpResponseRedirect(url)

@@ -1,73 +1,36 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { usePopper } from "react-popper";
-import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
+import EmojiPicker from "emoji-picker-react";
 import { Popover, Tab } from "@headlessui/react";
-import { Placement } from "@popperjs/core";
+// plane helpers
+import { useOutsideClickDetector } from "@plane/hooks";
 // components
 import { IconsList } from "./icons-list";
 // helpers
 import { cn } from "../../helpers";
-
-export enum EmojiIconPickerTypes {
-  EMOJI = "emoji",
-  ICON = "icon",
-}
-
-type TChangeHandlerProps =
-  | {
-      type: EmojiIconPickerTypes.EMOJI;
-      value: EmojiClickData;
-    }
-  | {
-      type: EmojiIconPickerTypes.ICON;
-      value: {
-        name: string;
-        color: string;
-      };
-    };
-
-export type TCustomEmojiPicker = {
-  buttonClassName?: string;
-  className?: string;
-  closeOnSelect?: boolean;
-  defaultIconColor?: string;
-  defaultOpen?: EmojiIconPickerTypes;
-  disabled?: boolean;
-  dropdownClassName?: string;
-  label: React.ReactNode;
-  onChange: (value: TChangeHandlerProps) => void;
-  placement?: Placement;
-  searchPlaceholder?: string;
-  theme?: Theme;
-};
-
-const TABS_LIST = [
-  {
-    key: EmojiIconPickerTypes.EMOJI,
-    title: "Emojis",
-  },
-  {
-    key: EmojiIconPickerTypes.ICON,
-    title: "Icons",
-  },
-];
+// hooks
+import { EmojiIconPickerTypes, TABS_LIST, TCustomEmojiPicker } from "./emoji-icon-helper";
 
 export const CustomEmojiIconPicker: React.FC<TCustomEmojiPicker> = (props) => {
   const {
+    isOpen,
+    handleToggle,
     buttonClassName,
     className,
     closeOnSelect = true,
-    defaultIconColor = "#5f5f5f",
+    defaultIconColor = "#6d7b8a",
     defaultOpen = EmojiIconPickerTypes.EMOJI,
     disabled = false,
     dropdownClassName,
     label,
     onChange,
     placement = "bottom-start",
+    searchDisabled = false,
     searchPlaceholder = "Search",
     theme,
   } = props;
   // refs
+  const containerRef = useRef<HTMLDivElement>(null);
   const [referenceElement, setReferenceElement] = useState<HTMLButtonElement | null>(null);
   const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null);
   // popper-js
@@ -83,21 +46,25 @@ export const CustomEmojiIconPicker: React.FC<TCustomEmojiPicker> = (props) => {
     ],
   });
 
+  // close dropdown on outside click
+  useOutsideClickDetector(containerRef, () => handleToggle(false));
+
   return (
     <Popover as="div" className={cn("relative", className)}>
-      {({ close }) => (
-        <>
-          <Popover.Button as={React.Fragment}>
-            <button
-              type="button"
-              ref={setReferenceElement}
-              className={cn("outline-none", buttonClassName)}
-              disabled={disabled}
-            >
-              {label}
-            </button>
-          </Popover.Button>
-          <Popover.Panel className="fixed z-10">
+      <>
+        <Popover.Button as={React.Fragment}>
+          <button
+            type="button"
+            ref={setReferenceElement}
+            className={cn("outline-none", buttonClassName)}
+            disabled={disabled}
+            onClick={() => handleToggle(!isOpen)}
+          >
+            {label}
+          </button>
+        </Popover.Button>
+        {isOpen && (
+          <Popover.Panel className="fixed z-10" static>
             <div
               ref={setPopperElement}
               style={styles.popper}
@@ -108,6 +75,7 @@ export const CustomEmojiIconPicker: React.FC<TCustomEmojiPicker> = (props) => {
               )}
             >
               <Tab.Group
+                ref={containerRef}
                 as="div"
                 className="h-full w-full flex flex-col overflow-hidden"
                 defaultIndex={TABS_LIST.findIndex((tab) => tab.key === defaultOpen)}
@@ -135,18 +103,19 @@ export const CustomEmojiIconPicker: React.FC<TCustomEmojiPicker> = (props) => {
                           type: EmojiIconPickerTypes.EMOJI,
                           value: val,
                         });
-                        if (closeOnSelect) close();
+                        if (closeOnSelect) handleToggle(false);
                       }}
                       height="20rem"
                       width="100%"
                       theme={theme}
+                      searchDisabled={searchDisabled}
                       searchPlaceholder={searchPlaceholder}
                       previewConfig={{
                         showPreview: false,
                       }}
                     />
                   </Tab.Panel>
-                  <Tab.Panel className="h-80 w-full">
+                  <Tab.Panel className="h-80 w-full relative overflow-hidden overflow-y-auto">
                     <IconsList
                       defaultColor={defaultIconColor}
                       onChange={(val) => {
@@ -154,16 +123,17 @@ export const CustomEmojiIconPicker: React.FC<TCustomEmojiPicker> = (props) => {
                           type: EmojiIconPickerTypes.ICON,
                           value: val,
                         });
-                        if (closeOnSelect) close();
+                        if (closeOnSelect) handleToggle(false);
                       }}
+                      searchDisabled={searchDisabled}
                     />
                   </Tab.Panel>
                 </Tab.Panels>
               </Tab.Group>
             </div>
           </Popover.Panel>
-        </>
-      )}
+        )}
+      </>
     </Popover>
   );
 };

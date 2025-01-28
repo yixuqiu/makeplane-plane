@@ -11,9 +11,7 @@ from django.views import View
 from plane.authentication.provider.oauth.google import GoogleOAuthProvider
 from plane.authentication.utils.login import user_login
 from plane.authentication.utils.redirection_path import get_redirection_path
-from plane.authentication.utils.workspace_project_join import (
-    process_workspace_project_invitations,
-)
+from plane.authentication.utils.user_auth_workflow import post_user_auth_workflow
 from plane.license.models import Instance
 from plane.authentication.utils.host import base_host
 from plane.authentication.adapter.error import (
@@ -24,7 +22,7 @@ from plane.authentication.adapter.error import (
 
 class GoogleOauthInitiateEndpoint(View):
     def get(self, request):
-        request.session["host"] = base_host(request=request)
+        request.session["host"] = base_host(request=request, is_app=True)
         next_path = request.GET.get("next_path")
         if next_path:
             request.session["next_path"] = str(next_path)
@@ -33,17 +31,14 @@ class GoogleOauthInitiateEndpoint(View):
         instance = Instance.objects.first()
         if instance is None or not instance.is_setup_done:
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "INSTANCE_NOT_CONFIGURED"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["INSTANCE_NOT_CONFIGURED"],
                 error_message="INSTANCE_NOT_CONFIGURED",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
             url = urljoin(
-                base_host(request=request),
-                "?" + urlencode(params),
+                base_host(request=request, is_app=True), "?" + urlencode(params)
             )
             return HttpResponseRedirect(url)
 
@@ -58,8 +53,7 @@ class GoogleOauthInitiateEndpoint(View):
             if next_path:
                 params["next_path"] = str(next_path)
             url = urljoin(
-                base_host(request=request),
-                "?" + urlencode(params),
+                base_host(request=request, is_app=True), "?" + urlencode(params)
             )
             return HttpResponseRedirect(url)
 
@@ -73,44 +67,31 @@ class GoogleCallbackEndpoint(View):
 
         if state != request.session.get("state", ""):
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "GOOGLE_OAUTH_PROVIDER_ERROR"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["GOOGLE_OAUTH_PROVIDER_ERROR"],
                 error_message="GOOGLE_OAUTH_PROVIDER_ERROR",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = urljoin(base_host, "?" + urlencode(params))
             return HttpResponseRedirect(url)
         if not code:
             exc = AuthenticationException(
-                error_code=AUTHENTICATION_ERROR_CODES[
-                    "GOOGLE_OAUTH_PROVIDER_ERROR"
-                ],
+                error_code=AUTHENTICATION_ERROR_CODES["GOOGLE_OAUTH_PROVIDER_ERROR"],
                 error_message="GOOGLE_OAUTH_PROVIDER_ERROR",
             )
             params = exc.get_error_dict()
             if next_path:
                 params["next_path"] = next_path
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = urljoin(base_host, "?" + urlencode(params))
             return HttpResponseRedirect(url)
         try:
             provider = GoogleOAuthProvider(
-                request=request,
-                code=code,
+                request=request, code=code, callback=post_user_auth_workflow
             )
             user = provider.authenticate()
             # Login the user and record his device info
-            user_login(request=request, user=user)
-            # Process workspace and project invitations
-            process_workspace_project_invitations(user=user)
+            user_login(request=request, user=user, is_app=True)
             # Get the redirection path
             path = get_redirection_path(user=user)
             # redirect to referer path
@@ -120,8 +101,5 @@ class GoogleCallbackEndpoint(View):
             params = e.get_error_dict()
             if next_path:
                 params["next_path"] = str(next_path)
-            url = urljoin(
-                base_host,
-                "?" + urlencode(params),
-            )
+            url = urljoin(base_host, "?" + urlencode(params))
             return HttpResponseRedirect(url)

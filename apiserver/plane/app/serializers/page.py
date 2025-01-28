@@ -6,9 +6,11 @@ from .base import BaseSerializer
 from plane.db.models import (
     Page,
     PageLog,
-    PageFavorite,
     PageLabel,
     Label,
+    ProjectPage,
+    Project,
+    PageVersion,
 )
 
 
@@ -19,6 +21,9 @@ class PageSerializer(BaseSerializer):
         write_only=True,
         required=False,
     )
+    # Many to many
+    label_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    project_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
     class Meta:
         model = Page
@@ -34,43 +39,54 @@ class PageSerializer(BaseSerializer):
             "is_locked",
             "archived_at",
             "workspace",
-            "project",
             "created_at",
             "updated_at",
             "created_by",
             "updated_by",
             "view_props",
+            "logo_props",
+            "label_ids",
+            "project_ids",
         ]
-        read_only_fields = [
-            "workspace",
-            "project",
-            "owned_by",
-        ]
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        data["labels"] = [str(label.id) for label in instance.labels.all()]
-        return data
+        read_only_fields = ["workspace", "owned_by"]
 
     def create(self, validated_data):
         labels = validated_data.pop("labels", None)
         project_id = self.context["project_id"]
         owned_by_id = self.context["owned_by_id"]
+        description = self.context["description"]
+        description_binary = self.context["description_binary"]
         description_html = self.context["description_html"]
+
+        # Get the workspace id from the project
+        project = Project.objects.get(pk=project_id)
+
+        # Create the page
         page = Page.objects.create(
             **validated_data,
+            description=description,
+            description_binary=description_binary,
             description_html=description_html,
-            project_id=project_id,
             owned_by_id=owned_by_id,
+            workspace_id=project.workspace_id,
         )
 
+        # Create the project page
+        ProjectPage.objects.create(
+            workspace_id=page.workspace_id,
+            project_id=project_id,
+            page_id=page.id,
+            created_by_id=page.created_by_id,
+            updated_by_id=page.updated_by_id,
+        )
+
+        # Create page labels
         if labels is not None:
             PageLabel.objects.bulk_create(
                 [
                     PageLabel(
                         label=label,
                         page=page,
-                        project_id=project_id,
                         workspace_id=page.workspace_id,
                         created_by_id=page.created_by_id,
                         updated_by_id=page.updated_by_id,
@@ -90,7 +106,6 @@ class PageSerializer(BaseSerializer):
                     PageLabel(
                         label=label,
                         page=instance,
-                        project_id=instance.project_id,
                         workspace_id=instance.workspace_id,
                         created_by_id=instance.created_by_id,
                         updated_by_id=instance.updated_by_id,
@@ -116,11 +131,7 @@ class SubPageSerializer(BaseSerializer):
     class Meta:
         model = PageLog
         fields = "__all__"
-        read_only_fields = [
-            "workspace",
-            "project",
-            "page",
-        ]
+        read_only_fields = ["workspace", "page"]
 
     def get_entity_details(self, obj):
         entity_name = obj.entity_name
@@ -137,21 +148,41 @@ class PageLogSerializer(BaseSerializer):
     class Meta:
         model = PageLog
         fields = "__all__"
-        read_only_fields = [
-            "workspace",
-            "project",
-            "page",
-        ]
+        read_only_fields = ["workspace", "page"]
 
 
-class PageFavoriteSerializer(BaseSerializer):
-    page_detail = PageSerializer(source="page", read_only=True)
-
+class PageVersionSerializer(BaseSerializer):
     class Meta:
-        model = PageFavorite
-        fields = "__all__"
-        read_only_fields = [
+        model = PageVersion
+        fields = [
+            "id",
             "workspace",
-            "project",
-            "user",
+            "page",
+            "last_saved_at",
+            "owned_by",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "updated_by",
         ]
+        read_only_fields = ["workspace", "page"]
+
+
+class PageVersionDetailSerializer(BaseSerializer):
+    class Meta:
+        model = PageVersion
+        fields = [
+            "id",
+            "workspace",
+            "page",
+            "last_saved_at",
+            "description_binary",
+            "description_html",
+            "description_json",
+            "owned_by",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "updated_by",
+        ]
+        read_only_fields = ["workspace", "page"]

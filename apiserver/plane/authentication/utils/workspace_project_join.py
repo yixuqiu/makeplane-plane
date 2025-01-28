@@ -4,6 +4,7 @@ from plane.db.models import (
     WorkspaceMember,
     WorkspaceMemberInvite,
 )
+from plane.utils.cache import invalidate_cache_directly
 
 
 def process_workspace_project_invitations(user):
@@ -26,6 +27,16 @@ def process_workspace_project_invitations(user):
         ignore_conflicts=True,
     )
 
+    [
+        invalidate_cache_directly(
+            path=f"/api/workspaces/{str(workspace_member_invite.workspace.slug)}/members/",
+            url_params=False,
+            user=False,
+            multiple=True,
+        )
+        for workspace_member_invite in workspace_member_invites
+    ]
+
     # Check if user has any project invites
     project_member_invites = ProjectMemberInvite.objects.filter(
         email=user.email, accepted=True
@@ -38,7 +49,7 @@ def process_workspace_project_invitations(user):
                 workspace_id=project_member_invite.workspace_id,
                 role=(
                     project_member_invite.role
-                    if project_member_invite.role in [5, 10, 15]
+                    if project_member_invite.role in [5, 15]
                     else 15
                 ),
                 member=user,
@@ -56,7 +67,7 @@ def process_workspace_project_invitations(user):
                 workspace_id=project_member_invite.workspace_id,
                 role=(
                     project_member_invite.role
-                    if project_member_invite.role in [5, 10, 15]
+                    if project_member_invite.role in [5, 15]
                     else 15
                 ),
                 member=user,

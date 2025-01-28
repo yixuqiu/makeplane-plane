@@ -81,7 +81,7 @@ export type TInboxDuplicateIssueDetails = {
 export type TInboxIssue = {
   id: string;
   status: TInboxIssueStatus;
-  snoozed_till: Date | undefined;
+  snoozed_till: Date | null;
   duplicate_to: string | undefined;
   source: string;
   issue: TIssue;
@@ -95,4 +95,18 @@ export type TInboxIssuePaginationInfo = TPaginationInfo & {
 
 export type TInboxIssueWithPagination = TInboxIssuePaginationInfo & {
   results: TInboxIssue[];
+};
+
+export type TInboxForm = {
+  anchor: string;
+  id: string;
+  is_in_app_enabled: boolean;
+  is_form_enabled: boolean;
+};
+
+export type TInboxIssueForm = {
+  name: string;
+  description: string;
+  username: string;
+  email: string;
 };

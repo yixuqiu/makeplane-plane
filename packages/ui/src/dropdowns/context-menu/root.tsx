@@ -1,15 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
+// plane helpers
+import { useOutsideClickDetector } from "@plane/hooks";
 // components
 import { ContextMenuItem } from "./item";
 // helpers
 import { cn } from "../../../helpers";
 // hooks
-import useOutsideClickDetector from "../../hooks/use-outside-click-detector";
+import { usePlatformOS } from "../../hooks/use-platform-os";
 
 export type TContextMenuItem = {
   key: string;
-  title: string;
+  customContent?: React.ReactNode;
+  title?: string;
   description?: string;
   icon?: React.FC<any>;
   action: () => void;
@@ -38,6 +41,7 @@ const ContextMenuWithoutPortal: React.FC<ContextMenuProps> = (props) => {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   // derived values
   const renderedItems = items.filter((item) => item.shouldRender !== false);
+  const { isMobile } = usePlatformOS();
 
   const handleClose = () => {
     setIsOpen(false);
@@ -51,6 +55,8 @@ const ContextMenuWithoutPortal: React.FC<ContextMenuProps> = (props) => {
     if (!parentElement || !contextMenu) return;
 
     const handleContextMenu = (e: MouseEvent) => {
+      if (isMobile) return;
+
       e.preventDefault();
       e.stopPropagation();
 
@@ -83,7 +89,7 @@ const ContextMenuWithoutPortal: React.FC<ContextMenuProps> = (props) => {
       parentElement.removeEventListener("contextmenu", handleContextMenu);
       window.removeEventListener("keydown", hideContextMenu);
     };
-  }, [contextMenuRef, isOpen, parentRef, setIsOpen, setPosition]);
+  }, [contextMenuRef, isMobile, isOpen, parentRef, setIsOpen, setPosition]);
 
   // handle keyboard navigation
   useEffect(() => {

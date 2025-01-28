@@ -1,85 +1,165 @@
 # Django imports
-from django.db.models import (
-    Q,
-    Case,
-    When,
-    Value,
-    CharField,
-    Count,
-    F,
-    Exists,
-    OuterRef,
-    Subquery,
-    JSONField,
-    Func,
-    Prefetch,
-    IntegerField,
-)
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import UUIDField
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    Func,
+    IntegerField,
+    JSONField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    UUIDField,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from rest_framework import status
 
 # Third Party imports
 from rest_framework.response import Response
-from rest_framework import status
 
-# Module imports
-from .. import BaseAPIView
-from plane.db.models import (
-    Issue,
-    IssueActivity,
-    ProjectMember,
-    Widget,
-    DashboardWidget,
-    Dashboard,
-    Project,
-    IssueLink,
-    IssueAttachment,
-    IssueRelation,
-    User,
-)
 from plane.app.serializers import (
+    DashboardSerializer,
     IssueActivitySerializer,
     IssueSerializer,
-    DashboardSerializer,
     WidgetSerializer,
+)
+from plane.db.models import (
+    DeprecatedDashboard,
+    DeprecatedDashboardWidget,
+    Issue,
+    IssueActivity,
+    FileAsset,
+    IssueLink,
+    IssueRelation,
+    Project,
+    DeprecatedWidget,
+    WorkspaceMember,
+    CycleIssue,
 )
 from plane.utils.issue_filters import issue_filters
 
+# Module imports
+from .. import BaseAPIView
+
 
 def dashboard_overview_stats(self, request, slug):
-    assigned_issues = Issue.issue_objects.filter(
-        project__project_projectmember__is_active=True,
-        project__project_projectmember__member=request.user,
-        workspace__slug=slug,
-        assignees__in=[request.user],
-    ).count()
+    assigned_issues = (
+        Issue.issue_objects.filter(
+            (Q(assignees__in=[request.user]) & Q(issue_assignee__deleted_at__isnull=True)),
+            project__project_projectmember__is_active=True,
+            project__project_projectmember__member=request.user,
+            workspace__slug=slug,
+        )
+        .filter(
+            Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=True,
+            )
+            | Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=False,
+                created_by=self.request.user,
+            )
+            |
+            # For other roles (role < 5), show all issues
+            Q(project__project_projectmember__role__gt=5),
+            project__project_projectmember__member=self.request.user,
+            project__project_projectmember__is_active=True,
+        )
+        .count()
+    )
 
-    pending_issues_count = Issue.issue_objects.filter(
-        ~Q(state__group__in=["completed", "cancelled"]),
-        target_date__lt=timezone.now().date(),
-        project__project_projectmember__is_active=True,
-        project__project_projectmember__member=request.user,
-        workspace__slug=slug,
-        assignees__in=[request.user],
-    ).count()
+    pending_issues_count = (
+        Issue.issue_objects.filter(
+            ~Q(state__group__in=["completed", "cancelled"]),
+            target_date__lt=timezone.now().date(),
+            project__project_projectmember__is_active=True,
+            project__project_projectmember__member=request.user,
+            workspace__slug=slug,
+            assignees__in=[request.user],
+        )
+        .filter(
+            Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=True,
+            )
+            | Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=False,
+                created_by=self.request.user,
+            )
+            |
+            # For other roles (role < 5), show all issues
+            Q(project__project_projectmember__role__gt=5),
+            project__project_projectmember__member=self.request.user,
+            project__project_projectmember__is_active=True,
+        )
+        .count()
+    )
 
-    created_issues_count = Issue.issue_objects.filter(
-        workspace__slug=slug,
-        project__project_projectmember__is_active=True,
-        project__project_projectmember__member=request.user,
-        created_by_id=request.user.id,
-    ).count()
+    created_issues_count = (
+        Issue.issue_objects.filter(
+            workspace__slug=slug,
+            project__project_projectmember__is_active=True,
+            project__project_projectmember__member=request.user,
+            created_by_id=request.user.id,
+        )
+        .filter(
+            Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=True,
+            )
+            | Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=False,
+                created_by=self.request.user,
+            )
+            |
+            # For other roles (role < 5), show all issues
+            Q(project__project_projectmember__role__gt=5),
+            project__project_projectmember__member=self.request.user,
+            project__project_projectmember__is_active=True,
+        )
+        .count()
+    )
 
-    completed_issues_count = Issue.issue_objects.filter(
-        workspace__slug=slug,
-        project__project_projectmember__is_active=True,
-        project__project_projectmember__member=request.user,
-        assignees__in=[request.user],
-        state__group="completed",
-    ).count()
+    completed_issues_count = (
+        Issue.issue_objects.filter(
+            (
+                Q(assignees__in=[request.user])
+                & Q(issue_assignee__deleted_at__isnull=True)
+            ),
+            workspace__slug=slug,
+            project__project_projectmember__is_active=True,
+            project__project_projectmember__member=request.user,
+            state__group="completed",
+        )
+        .filter(
+            Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=True,
+            )
+            | Q(
+                project__project_projectmember__role=5,
+                project__guest_view_all_features=False,
+                created_by=self.request.user,
+            )
+            |
+            # For other roles (role < 5), show all issues
+            Q(project__project_projectmember__role__gt=5),
+            project__project_projectmember__member=self.request.user,
+            project__project_projectmember__is_active=True,
+        )
+        .count()
+    )
 
     return Response(
         {
@@ -99,10 +179,13 @@ def dashboard_assigned_issues(self, request, slug):
     # get all the assigned issues
     assigned_issues = (
         Issue.issue_objects.filter(
+            (
+                Q(assignees__in=[request.user])
+                & Q(issue_assignee__deleted_at__isnull=True)
+            ),
             workspace__slug=slug,
             project__project_projectmember__member=request.user,
             project__project_projectmember__is_active=True,
-            assignees__in=[request.user],
         )
         .filter(**filters)
         .select_related("workspace", "project", "state", "parent")
@@ -115,7 +198,13 @@ def dashboard_assigned_issues(self, request, slug):
                 ).select_related("issue"),
             )
         )
-        .annotate(cycle_id=F("issue_cycle__cycle_id"))
+        .annotate(
+            cycle_id=Subquery(
+                CycleIssue.objects.filter(
+                    issue=OuterRef("id"), deleted_at__isnull=True
+                ).values("cycle_id")[:1]
+            )
+        )
         .annotate(
             link_count=IssueLink.objects.filter(issue=OuterRef("id"))
             .order_by()
@@ -123,8 +212,9 @@ def dashboard_assigned_issues(self, request, slug):
             .values("count")
         )
         .annotate(
-            attachment_count=IssueAttachment.objects.filter(
-                issue=OuterRef("id")
+            attachment_count=FileAsset.objects.filter(
+                issue_id=OuterRef("id"),
+                entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT,
             )
             .order_by()
             .annotate(count=Func(F("id"), function="Count"))
@@ -141,7 +231,10 @@ def dashboard_assigned_issues(self, request, slug):
                 ArrayAgg(
                     "labels__id",
                     distinct=True,
-                    filter=~Q(labels__id__isnull=True),
+                    filter=Q(
+                        ~Q(labels__id__isnull=True)
+                        & Q(label_issue__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
@@ -149,8 +242,11 @@ def dashboard_assigned_issues(self, request, slug):
                 ArrayAgg(
                     "assignees__id",
                     distinct=True,
-                    filter=~Q(assignees__id__isnull=True)
-                    & Q(assignees__member_project__is_active=True),
+                    filter=Q(
+                        ~Q(assignees__id__isnull=True)
+                        & Q(assignees__member_project__is_active=True)
+                        & Q(issue_assignee__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
@@ -158,21 +254,27 @@ def dashboard_assigned_issues(self, request, slug):
                 ArrayAgg(
                     "issue_module__module_id",
                     distinct=True,
-                    filter=~Q(issue_module__module_id__isnull=True),
+                    filter=Q(
+                        ~Q(issue_module__module_id__isnull=True)
+                        & Q(issue_module__module__archived_at__isnull=True)
+                        & Q(issue_module__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
         )
     )
 
+    if WorkspaceMember.objects.filter(
+        workspace__slug=slug, member=request.user, role=5, is_active=True
+    ).exists():
+        assigned_issues = assigned_issues.filter(created_by=request.user)
+
     # Priority Ordering
     priority_order = ["urgent", "high", "medium", "low", "none"]
     assigned_issues = assigned_issues.annotate(
         priority_order=Case(
-            *[
-                When(priority=p, then=Value(i))
-                for i, p in enumerate(priority_order)
-            ],
+            *[When(priority=p, then=Value(i)) for i, p in enumerate(priority_order)],
             output_field=CharField(),
         )
     ).order_by("priority_order")
@@ -198,9 +300,7 @@ def dashboard_assigned_issues(self, request, slug):
         completed_issues_count = assigned_issues.filter(
             state__group__in=["completed"]
         ).count()
-        completed_issues = assigned_issues.filter(
-            state__group__in=["completed"]
-        )[:5]
+        completed_issues = assigned_issues.filter(state__group__in=["completed"])[:5]
         return Response(
             {
                 "issues": IssueSerializer(
@@ -270,7 +370,13 @@ def dashboard_created_issues(self, request, slug):
         .filter(**filters)
         .select_related("workspace", "project", "state", "parent")
         .prefetch_related("assignees", "labels", "issue_module__module")
-        .annotate(cycle_id=F("issue_cycle__cycle_id"))
+        .annotate(
+            cycle_id=Subquery(
+                CycleIssue.objects.filter(
+                    issue=OuterRef("id"), deleted_at__isnull=True
+                ).values("cycle_id")[:1]
+            )
+        )
         .annotate(
             link_count=IssueLink.objects.filter(issue=OuterRef("id"))
             .order_by()
@@ -278,8 +384,9 @@ def dashboard_created_issues(self, request, slug):
             .values("count")
         )
         .annotate(
-            attachment_count=IssueAttachment.objects.filter(
-                issue=OuterRef("id")
+            attachment_count=FileAsset.objects.filter(
+                issue_id=OuterRef("id"),
+                entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT,
             )
             .order_by()
             .annotate(count=Func(F("id"), function="Count"))
@@ -296,7 +403,10 @@ def dashboard_created_issues(self, request, slug):
                 ArrayAgg(
                     "labels__id",
                     distinct=True,
-                    filter=~Q(labels__id__isnull=True),
+                    filter=Q(
+                        ~Q(labels__id__isnull=True)
+                        & Q(label_issue__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
@@ -304,8 +414,11 @@ def dashboard_created_issues(self, request, slug):
                 ArrayAgg(
                     "assignees__id",
                     distinct=True,
-                    filter=~Q(assignees__id__isnull=True)
-                    & Q(assignees__member_project__is_active=True),
+                    filter=Q(
+                        ~Q(assignees__id__isnull=True)
+                        & Q(assignees__member_project__is_active=True)
+                        & Q(issue_assignee__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
@@ -313,7 +426,11 @@ def dashboard_created_issues(self, request, slug):
                 ArrayAgg(
                     "issue_module__module_id",
                     distinct=True,
-                    filter=~Q(issue_module__module_id__isnull=True),
+                    filter=Q(
+                        ~Q(issue_module__module_id__isnull=True)
+                        & Q(issue_module__module__archived_at__isnull=True)
+                        & Q(issue_module__deleted_at__isnull=True)
+                    ),
                 ),
                 Value([], output_field=ArrayField(UUIDField())),
             ),
@@ -325,10 +442,7 @@ def dashboard_created_issues(self, request, slug):
     priority_order = ["urgent", "high", "medium", "low", "none"]
     created_issues = created_issues.annotate(
         priority_order=Case(
-            *[
-                When(priority=p, then=Value(i))
-                for i, p in enumerate(priority_order)
-            ],
+            *[When(priority=p, then=Value(i)) for i, p in enumerate(priority_order)],
             output_field=CharField(),
         )
     ).order_by("priority_order")
@@ -354,9 +468,7 @@ def dashboard_created_issues(self, request, slug):
         completed_issues_count = created_issues.filter(
             state__group__in=["completed"]
         ).count()
-        completed_issues = created_issues.filter(
-            state__group__in=["completed"]
-        )[:5]
+        completed_issues = created_issues.filter(state__group__in=["completed"])[:5]
         return Response(
             {
                 "issues": IssueSerializer(completed_issues, many=True).data,
@@ -408,6 +520,13 @@ def dashboard_created_issues(self, request, slug):
 def dashboard_issues_by_state_groups(self, request, slug):
     filters = issue_filters(request.query_params, "GET")
     state_order = ["backlog", "unstarted", "started", "completed", "cancelled"]
+    extra_filters = {}
+
+    if WorkspaceMember.objects.filter(
+        workspace__slug=slug, member=request.user, role=5, is_active=True
+    ).exists():
+        extra_filters = {"created_by": request.user}
+
     issues_by_state_groups = (
         Issue.issue_objects.filter(
             workspace__slug=slug,
@@ -415,7 +534,7 @@ def dashboard_issues_by_state_groups(self, request, slug):
             project__project_projectmember__member=request.user,
             assignees__in=[request.user],
         )
-        .filter(**filters)
+        .filter(**filters, **extra_filters)
         .values("state__group")
         .annotate(count=Count("id"))
     )
@@ -438,6 +557,12 @@ def dashboard_issues_by_state_groups(self, request, slug):
 def dashboard_issues_by_priority(self, request, slug):
     filters = issue_filters(request.query_params, "GET")
     priority_order = ["urgent", "high", "medium", "low", "none"]
+    extra_filters = {}
+
+    if WorkspaceMember.objects.filter(
+        workspace__slug=slug, member=request.user, role=5, is_active=True
+    ).exists():
+        extra_filters = {"created_by": request.user}
 
     issues_by_priority = (
         Issue.issue_objects.filter(
@@ -446,7 +571,7 @@ def dashboard_issues_by_priority(self, request, slug):
             project__project_projectmember__member=request.user,
             assignees__in=[request.user],
         )
-        .filter(**filters)
+        .filter(**filters, **extra_filters)
         .values("priority")
         .annotate(count=Count("id"))
     )
@@ -460,8 +585,7 @@ def dashboard_issues_by_priority(self, request, slug):
 
     # Prepare output including all groups with their counts
     output_data = [
-        {"priority": group, "count": count}
-        for group, count in all_groups.items()
+        {"priority": group, "count": count} for group, count in all_groups.items()
     ]
 
     return Response(output_data, status=status.HTTP_200_OK)
@@ -478,8 +602,7 @@ def dashboard_recent_activity(self, request, slug):
     ).select_related("actor", "workspace", "issue", "project")[:8]
 
     return Response(
-        IssueActivitySerializer(queryset, many=True).data,
-        status=status.HTTP_200_OK,
+        IssueActivitySerializer(queryset, many=True).data, status=status.HTTP_200_OK
     )
 
 
@@ -509,115 +632,42 @@ def dashboard_recent_projects(self, request, slug):
         ).exclude(id__in=unique_project_ids)
 
         # Append additional project IDs to the existing list
-        unique_project_ids.update(
-            additional_projects.values_list("id", flat=True)
-        )
+        unique_project_ids.update(additional_projects.values_list("id", flat=True))
 
-    return Response(
-        list(unique_project_ids)[:4],
-        status=status.HTTP_200_OK,
-    )
+    return Response(list(unique_project_ids)[:4], status=status.HTTP_200_OK)
 
 
 def dashboard_recent_collaborators(self, request, slug):
-    # Subquery to count activities for each project member
-    activity_count_subquery = (
-        IssueActivity.objects.filter(
-            workspace__slug=slug,
-            actor=OuterRef("member"),
-            project__project_projectmember__member=request.user,
-            project__project_projectmember__is_active=True,
-            project__archived_at__isnull=True,
-        )
-        .values("actor")
-        .annotate(num_activities=Count("pk"))
-        .values("num_activities")
-    )
-
-    # Get all project members and annotate them with activity counts
     project_members_with_activities = (
-        ProjectMember.objects.filter(
-            workspace__slug=slug,
-            project__project_projectmember__member=request.user,
-            project__project_projectmember__is_active=True,
-            project__archived_at__isnull=True,
-        )
+        WorkspaceMember.objects.filter(workspace__slug=slug, is_active=True)
         .annotate(
-            num_activities=Coalesce(
-                Subquery(activity_count_subquery),
-                Value(0),
-                output_field=IntegerField(),
+            active_issue_count=Count(
+                Case(
+                    When(
+                        member__issue_assignee__issue__state__group__in=[
+                            "unstarted",
+                            "started",
+                        ],
+                        member__issue_assignee__issue__workspace__slug=slug,
+                        member__issue_assignee__issue__project__project_projectmember__member=request.user,
+                        member__issue_assignee__issue__project__project_projectmember__is_active=True,
+                        then=F("member__issue_assignee__issue__id"),
+                    ),
+                    distinct=True,
+                    output_field=IntegerField(),
+                ),
+                distinct=True,
             ),
-            is_current_user=Case(
-                When(member=request.user, then=Value(0)),
-                default=Value(1),
-                output_field=IntegerField(),
-            ),
+            user_id=F("member_id"),
         )
-        .values_list("member", flat=True)
-        .order_by("is_current_user", "-num_activities")
+        .values("user_id", "active_issue_count")
+        .order_by("-active_issue_count")
         .distinct()
     )
-    search = request.query_params.get("search", None)
-    if search:
-        project_members_with_activities = (
-            project_members_with_activities.filter(
-                Q(member__display_name__icontains=search)
-                | Q(member__first_name__icontains=search)
-                | Q(member__last_name__icontains=search)
-            )
-        )
-
-    return self.paginate(
-        request=request,
-        queryset=project_members_with_activities,
-        controller=lambda qs: self.get_results_controller(qs, slug),
-    )
+    return Response((project_members_with_activities), status=status.HTTP_200_OK)
 
 
 class DashboardEndpoint(BaseAPIView):
-    def get_results_controller(self, project_members_with_activities, slug):
-        user_active_issue_counts = (
-            User.objects.filter(
-                id__in=project_members_with_activities,
-            )
-            .annotate(
-                active_issue_count=Count(
-                    Case(
-                        When(
-                            issue_assignee__issue__state__group__in=[
-                                "unstarted",
-                                "started",
-                            ],
-                            issue_assignee__issue__workspace__slug=slug,
-                            issue_assignee__issue__project__project_projectmember__is_active=True,
-                            then=F("issue_assignee__issue__id"),
-                        ),
-                        output_field=IntegerField(),
-                    ),
-                    distinct=True,
-                )
-            )
-            .values("active_issue_count", user_id=F("id"))
-        )
-        # Create a dictionary to store the active issue counts by user ID
-        active_issue_counts_dict = {
-            user["user_id"]: user["active_issue_count"]
-            for user in user_active_issue_counts
-        }
-
-        # Preserve the sequence of project members with activities
-        paginated_results = [
-            {
-                "user_id": member_id,
-                "active_issue_count": active_issue_counts_dict.get(
-                    member_id, 0
-                ),
-            }
-            for member_id in project_members_with_activities
-        ]
-        return paginated_results
-
     def create(self, request, slug):
         serializer = DashboardSerializer(data=request.data)
         if serializer.is_valid():
@@ -643,7 +693,7 @@ class DashboardEndpoint(BaseAPIView):
         if not dashboard_id:
             dashboard_type = request.GET.get("dashboard_type", None)
             if dashboard_type == "home":
-                dashboard, created = Dashboard.objects.get_or_create(
+                dashboard, created = DeprecatedDashboard.objects.get_or_create(
                     type_identifier=dashboard_type,
                     owned_by=request.user,
                     is_default=True,
@@ -663,25 +713,24 @@ class DashboardEndpoint(BaseAPIView):
 
                     updated_dashboard_widgets = []
                     for widget_key in widgets_to_fetch:
-                        widget = Widget.objects.filter(
+                        widget = DeprecatedWidget.objects.filter(
                             key=widget_key
                         ).values_list("id", flat=True)
                         if widget:
                             updated_dashboard_widgets.append(
-                                DashboardWidget(
-                                    widget_id=widget,
-                                    dashboard_id=dashboard.id,
+                                DeprecatedDashboardWidget(
+                                    widget_id=widget, dashboard_id=dashboard.id
                                 )
                             )
 
-                    DashboardWidget.objects.bulk_create(
+                    DeprecatedDashboardWidget.objects.bulk_create(
                         updated_dashboard_widgets, batch_size=100
                     )
 
                 widgets = (
-                    Widget.objects.annotate(
+                    DeprecatedWidget.objects.annotate(
                         is_visible=Exists(
-                            DashboardWidget.objects.filter(
+                            DeprecatedDashboardWidget.objects.filter(
                                 widget_id=OuterRef("pk"),
                                 dashboard_id=dashboard.id,
                                 is_visible=True,
@@ -690,7 +739,7 @@ class DashboardEndpoint(BaseAPIView):
                     )
                     .annotate(
                         dashboard_filters=Subquery(
-                            DashboardWidget.objects.filter(
+                            DeprecatedDashboardWidget.objects.filter(
                                 widget_id=OuterRef("pk"),
                                 dashboard_id=dashboard.id,
                                 filters__isnull=False,
@@ -737,11 +786,7 @@ class DashboardEndpoint(BaseAPIView):
 
         func = WIDGETS_MAPPER.get(widget_key)
         if func is not None:
-            response = func(
-                self,
-                request=request,
-                slug=slug,
-            )
+            response = func(self, request=request, slug=slug)
             if isinstance(response, Response):
                 return response
 
@@ -753,9 +798,8 @@ class DashboardEndpoint(BaseAPIView):
 
 class WidgetsEndpoint(BaseAPIView):
     def patch(self, request, dashboard_id, widget_id):
-        dashboard_widget = DashboardWidget.objects.filter(
-            widget_id=widget_id,
-            dashboard_id=dashboard_id,
+        dashboard_widget = DeprecatedDashboardWidget.objects.filter(
+            widget_id=widget_id, dashboard_id=dashboard_id
         ).first()
         dashboard_widget.is_visible = request.data.get(
             "is_visible", dashboard_widget.is_visible
@@ -763,10 +807,6 @@ class WidgetsEndpoint(BaseAPIView):
         dashboard_widget.sort_order = request.data.get(
             "sort_order", dashboard_widget.sort_order
         )
-        dashboard_widget.filters = request.data.get(
-            "filters", dashboard_widget.filters
-        )
+        dashboard_widget.filters = request.data.get("filters", dashboard_widget.filters)
         dashboard_widget.save()
-        return Response(
-            {"message": "successfully updated"}, status=status.HTTP_200_OK
-        )
+        return Response({"message": "successfully updated"}, status=status.HTTP_200_OK)

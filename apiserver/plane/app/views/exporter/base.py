@@ -1,23 +1,21 @@
 # Third Party imports
-from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.response import Response
+
+from plane.app.permissions import allow_permission, ROLE
+from plane.app.serializers import ExporterHistorySerializer
+from plane.bgtasks.export_task import issue_export_task
+from plane.db.models import ExporterHistory, Project, Workspace
 
 # Module imports
 from .. import BaseAPIView
-from plane.app.permissions import WorkSpaceAdminPermission
-from plane.bgtasks.export_task import issue_export_task
-from plane.db.models import Project, ExporterHistory, Workspace
-
-from plane.app.serializers import ExporterHistorySerializer
 
 
 class ExportIssuesEndpoint(BaseAPIView):
-    permission_classes = [
-        WorkSpaceAdminPermission,
-    ]
     model = ExporterHistory
     serializer_class = ExporterHistorySerializer
 
+    @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def post(self, request, slug):
         # Get the workspace
         workspace = Workspace.objects.get(slug=slug)
@@ -41,6 +39,7 @@ class ExportIssuesEndpoint(BaseAPIView):
                 project=project_ids,
                 initiated_by=request.user,
                 provider=provider,
+                type="issue_exports",
             )
 
             issue_export_task.delay(
@@ -52,9 +51,7 @@ class ExportIssuesEndpoint(BaseAPIView):
                 slug=slug,
             )
             return Response(
-                {
-                    "message": "Once the export is ready you will be able to download it"
-                },
+                {"message": "Once the export is ready you will be able to download it"},
                 status=status.HTTP_200_OK,
             )
         else:
@@ -63,15 +60,15 @@ class ExportIssuesEndpoint(BaseAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+    @allow_permission(allowed_roles=[ROLE.ADMIN, ROLE.MEMBER], level="WORKSPACE")
     def get(self, request, slug):
         exporter_history = ExporterHistory.objects.filter(
-            workspace__slug=slug
+            workspace__slug=slug, type="issue_exports"
         ).select_related("workspace", "initiated_by")
 
-        if request.GET.get("per_page", False) and request.GET.get(
-            "cursor", False
-        ):
+        if request.GET.get("per_page", False) and request.GET.get("cursor", False):
             return self.paginate(
+                order_by=request.GET.get("order_by", "-created_at"),
                 request=request,
                 queryset=exporter_history,
                 on_results=lambda exporter_history: ExporterHistorySerializer(

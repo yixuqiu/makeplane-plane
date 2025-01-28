@@ -4,49 +4,60 @@ import {
   TInstanceEmailConfigurationKeys,
   TInstanceImageConfigurationKeys,
   TInstanceAuthenticationKeys,
+  TInstanceWorkspaceConfigurationKeys,
 } from "./";
 
+export interface IInstanceInfo {
+  instance: IInstance;
+  config: IInstanceConfig;
+}
+
 export interface IInstance {
-  instance: {
-    id: string;
-    created_at: string;
-    updated_at: string;
-    instance_name: string | undefined;
-    whitelist_emails: string | undefined;
-    instance_id: string | undefined;
-    license_key: string | undefined;
-    api_key: string | undefined;
-    version: string | undefined;
-    last_checked_at: string | undefined;
-    namespace: string | undefined;
-    is_telemetry_enabled: boolean;
-    is_support_required: boolean;
-    is_activated: boolean;
-    is_setup_done: boolean;
-    is_signup_screen_visited: boolean;
-    user_count: number | undefined;
-    is_verified: boolean;
-    created_by: string | undefined;
-    updated_by: string | undefined;
-    workspaces_exist: boolean;
-  };
-  config: {
-    is_google_enabled: boolean;
-    is_github_enabled: boolean;
-    is_magic_login_enabled: boolean;
-    is_email_password_enabled: boolean;
-    github_app_name: string | undefined;
-    slack_client_id: string | undefined;
-    posthog_api_key: string | undefined;
-    posthog_host: string | undefined;
-    has_unsplash_configured: boolean;
-    has_openai_configured: boolean;
-    file_size_limit: number | undefined;
-    is_smtp_configured: boolean;
-    app_base_url: string | undefined;
-    space_base_url: string | undefined;
-    admin_base_url: string | undefined;
-  };
+  id: string;
+  created_at: string;
+  updated_at: string;
+  instance_name: string | undefined;
+  whitelist_emails: string | undefined;
+  instance_id: string | undefined;
+  license_key: string | undefined;
+  current_version: string | undefined;
+  latest_version: string | undefined;
+  last_checked_at: string | undefined;
+  namespace: string | undefined;
+  is_telemetry_enabled: boolean;
+  is_support_required: boolean;
+  is_activated: boolean;
+  is_setup_done: boolean;
+  is_signup_screen_visited: boolean;
+  user_count: number | undefined;
+  is_verified: boolean;
+  created_by: string | undefined;
+  updated_by: string | undefined;
+  workspaces_exist: boolean;
+}
+
+export interface IInstanceConfig {
+  is_workspace_creation_disabled: boolean;
+  is_google_enabled: boolean;
+  is_github_enabled: boolean;
+  is_gitlab_enabled: boolean;
+  is_magic_login_enabled: boolean;
+  is_email_password_enabled: boolean;
+  github_app_name: string | undefined;
+  slack_client_id: string | undefined;
+  posthog_api_key: string | undefined;
+  posthog_host: string | undefined;
+  has_unsplash_configured: boolean;
+  has_openai_configured: boolean;
+  file_size_limit: number | undefined;
+  is_smtp_configured: boolean;
+  app_base_url: string | undefined;
+  space_base_url: string | undefined;
+  admin_base_url: string | undefined;
+  // intercom
+  is_intercom_enabled: boolean;
+  intercom_app_id: string | undefined;
+  instance_changelog_url?: string;
 }
 
 export interface IInstanceAdmin {
@@ -61,11 +72,17 @@ export interface IInstanceAdmin {
   user_detail: IUserLite;
 }
 
+export type TInstanceIntercomConfigurationKeys =
+  | "IS_INTERCOM_ENABLED"
+  | "INTERCOM_APP_ID";
+
 export type TInstanceConfigurationKeys =
   | TInstanceAIConfigurationKeys
   | TInstanceEmailConfigurationKeys
   | TInstanceImageConfigurationKeys
-  | TInstanceAuthenticationKeys;
+  | TInstanceAuthenticationKeys
+  | TInstanceIntercomConfigurationKeys
+  | TInstanceWorkspaceConfigurationKeys;
 
 export interface IInstanceConfiguration {
   id: string;

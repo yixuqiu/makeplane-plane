@@ -1,61 +1,61 @@
 # Python imports
 from datetime import date
+
 from dateutil.relativedelta import relativedelta
 
 # Django imports
-from django.utils import timezone
 from django.db.models import (
-    OuterRef,
-    Func,
-    F,
-    Q,
-    Count,
     Case,
-    Value,
-    CharField,
-    When,
-    Max,
+    Count,
+    F,
+    Func,
     IntegerField,
-    UUIDField,
+    OuterRef,
+    Q,
+    Value,
+    When,
+    Subquery,
 )
-from django.db.models.functions import ExtractWeek, Cast
 from django.db.models.fields import DateField
-from django.contrib.postgres.aggregates import ArrayAgg
-from django.contrib.postgres.fields import ArrayField
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, ExtractWeek
+from django.utils import timezone
 
 # Third party modules
 from rest_framework import status
 from rest_framework.response import Response
 
+from plane.app.permissions import WorkspaceEntityPermission, WorkspaceViewerPermission
+
 # Module imports
 from plane.app.serializers import (
-    WorkSpaceSerializer,
-    ProjectMemberSerializer,
     IssueActivitySerializer,
-    IssueSerializer,
+    ProjectMemberSerializer,
+    WorkSpaceSerializer,
     WorkspaceUserPropertiesSerializer,
 )
 from plane.app.views.base import BaseAPIView
 from plane.db.models import (
-    User,
-    Workspace,
-    ProjectMember,
-    IssueActivity,
+    CycleIssue,
     Issue,
+    IssueActivity,
+    FileAsset,
     IssueLink,
-    IssueAttachment,
     IssueSubscriber,
     Project,
+    ProjectMember,
+    User,
+    Workspace,
     WorkspaceMember,
-    CycleIssue,
     WorkspaceUserProperties,
 )
-from plane.app.permissions import (
-    WorkspaceEntityPermission,
-    WorkspaceViewerPermission,
+from plane.utils.grouper import (
+    issue_group_values,
+    issue_on_results,
+    issue_queryset_grouper,
 )
 from plane.utils.issue_filters import issue_filters
+from plane.utils.order_queryset import order_issue_queryset
+from plane.utils.paginator import GroupedOffsetPaginator, SubGroupedOffsetPaginator
 
 
 class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
@@ -66,10 +66,7 @@ class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
 
         if last_workspace_id is None:
             return Response(
-                {
-                    "project_details": [],
-                    "workspace_details": {},
-                },
+                {"project_details": [], "workspace_details": {}},
                 status=status.HTTP_200_OK,
             )
 
@@ -80,9 +77,7 @@ class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
             workspace_id=last_workspace_id, member=request.user
         ).select_related("workspace", "project", "member", "workspace__owner")
 
-        project_member_serializer = ProjectMemberSerializer(
-            project_member, many=True
-        )
+        project_member_serializer = ProjectMemberSerializer(project_member, many=True)
 
         return Response(
             {
@@ -94,27 +89,10 @@ class UserLastProjectWithWorkspaceEndpoint(BaseAPIView):
 
 
 class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
-    permission_classes = [
-        WorkspaceViewerPermission,
-    ]
+    permission_classes = [WorkspaceViewerPermission]
 
     def get(self, request, slug, user_id):
-        fields = [
-            field
-            for field in request.GET.get("fields", "").split(",")
-            if field
-        ]
         filters = issue_filters(request.query_params, "GET")
-
-        # Custom ordering for priority and state
-        priority_order = ["urgent", "high", "medium", "low", "none"]
-        state_order = [
-            "backlog",
-            "unstarted",
-            "started",
-            "completed",
-            "cancelled",
-        ]
 
         order_by_param = request.GET.get("order_by", "-created_at")
         issue_queryset = (
@@ -129,7 +107,13 @@ class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
             .filter(**filters)
             .select_related("workspace", "project", "state", "parent")
             .prefetch_related("assignees", "labels", "issue_module__module")
-            .annotate(cycle_id=F("issue_cycle__cycle_id"))
+            .annotate(
+                cycle_id=Subquery(
+                    CycleIssue.objects.filter(
+                        issue=OuterRef("id"), deleted_at__isnull=True
+                    ).values("cycle_id")[:1]
+                )
+            )
             .annotate(
                 link_count=IssueLink.objects.filter(issue=OuterRef("id"))
                 .order_by()
@@ -137,126 +121,112 @@ class WorkspaceUserProfileIssuesEndpoint(BaseAPIView):
                 .values("count")
             )
             .annotate(
-                attachment_count=IssueAttachment.objects.filter(
-                    issue=OuterRef("id")
+                attachment_count=FileAsset.objects.filter(
+                    issue_id=OuterRef("id"),
+                    entity_type=FileAsset.EntityTypeContext.ISSUE_ATTACHMENT,
                 )
                 .order_by()
                 .annotate(count=Func(F("id"), function="Count"))
                 .values("count")
             )
             .annotate(
-                sub_issues_count=Issue.issue_objects.filter(
-                    parent=OuterRef("id")
-                )
+                sub_issues_count=Issue.issue_objects.filter(parent=OuterRef("id"))
                 .order_by()
                 .annotate(count=Func(F("id"), function="Count"))
                 .values("count")
-            )
-            .annotate(
-                label_ids=Coalesce(
-                    ArrayAgg(
-                        "labels__id",
-                        distinct=True,
-                        filter=~Q(labels__id__isnull=True),
-                    ),
-                    Value([], output_field=ArrayField(UUIDField())),
-                ),
-                assignee_ids=Coalesce(
-                    ArrayAgg(
-                        "assignees__id",
-                        distinct=True,
-                        filter=~Q(assignees__id__isnull=True)
-                        & Q(assignees__member_project__is_active=True),
-                    ),
-                    Value([], output_field=ArrayField(UUIDField())),
-                ),
-                module_ids=Coalesce(
-                    ArrayAgg(
-                        "issue_module__module_id",
-                        distinct=True,
-                        filter=~Q(issue_module__module_id__isnull=True),
-                    ),
-                    Value([], output_field=ArrayField(UUIDField())),
-                ),
             )
             .order_by("created_at")
         ).distinct()
 
-        # Priority Ordering
-        if order_by_param == "priority" or order_by_param == "-priority":
-            priority_order = (
-                priority_order
-                if order_by_param == "priority"
-                else priority_order[::-1]
-            )
-            issue_queryset = issue_queryset.annotate(
-                priority_order=Case(
-                    *[
-                        When(priority=p, then=Value(i))
-                        for i, p in enumerate(priority_order)
-                    ],
-                    output_field=CharField(),
-                )
-            ).order_by("priority_order")
+        # Issue queryset
+        issue_queryset, order_by_param = order_issue_queryset(
+            issue_queryset=issue_queryset, order_by_param=order_by_param
+        )
 
-        # State Ordering
-        elif order_by_param in [
-            "state__name",
-            "state__group",
-            "-state__name",
-            "-state__group",
-        ]:
-            state_order = (
-                state_order
-                if order_by_param in ["state__name", "state__group"]
-                else state_order[::-1]
-            )
-            issue_queryset = issue_queryset.annotate(
-                state_order=Case(
-                    *[
-                        When(state__group=state_group, then=Value(i))
-                        for i, state_group in enumerate(state_order)
-                    ],
-                    default=Value(len(state_order)),
-                    output_field=CharField(),
+        # Group by
+        group_by = request.GET.get("group_by", False)
+        sub_group_by = request.GET.get("sub_group_by", False)
+
+        # issue queryset
+        issue_queryset = issue_queryset_grouper(
+            queryset=issue_queryset, group_by=group_by, sub_group_by=sub_group_by
+        )
+
+        if group_by:
+            if sub_group_by:
+                if group_by == sub_group_by:
+                    return Response(
+                        {
+                            "error": "Group by and sub group by cannot have same parameters"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                else:
+                    return self.paginate(
+                        request=request,
+                        order_by=order_by_param,
+                        queryset=issue_queryset,
+                        on_results=lambda issues: issue_on_results(
+                            group_by=group_by, issues=issues, sub_group_by=sub_group_by
+                        ),
+                        paginator_cls=SubGroupedOffsetPaginator,
+                        group_by_fields=issue_group_values(
+                            field=group_by, slug=slug, filters=filters
+                        ),
+                        sub_group_by_fields=issue_group_values(
+                            field=sub_group_by, slug=slug, filters=filters
+                        ),
+                        group_by_field_name=group_by,
+                        sub_group_by_field_name=sub_group_by,
+                        count_filter=Q(
+                            Q(issue_intake__status=1)
+                            | Q(issue_intake__status=-1)
+                            | Q(issue_intake__status=2)
+                            | Q(issue_intake__isnull=True),
+                            archived_at__isnull=True,
+                            is_draft=False,
+                        ),
+                    )
+            else:
+                # Group paginate
+                return self.paginate(
+                    request=request,
+                    order_by=order_by_param,
+                    queryset=issue_queryset,
+                    on_results=lambda issues: issue_on_results(
+                        group_by=group_by, issues=issues, sub_group_by=sub_group_by
+                    ),
+                    paginator_cls=GroupedOffsetPaginator,
+                    group_by_fields=issue_group_values(
+                        field=group_by, slug=slug, filters=filters
+                    ),
+                    group_by_field_name=group_by,
+                    count_filter=Q(
+                        Q(issue_intake__status=1)
+                        | Q(issue_intake__status=-1)
+                        | Q(issue_intake__status=2)
+                        | Q(issue_intake__isnull=True),
+                        archived_at__isnull=True,
+                        is_draft=False,
+                    ),
                 )
-            ).order_by("state_order")
-        # assignee and label ordering
-        elif order_by_param in [
-            "labels__name",
-            "-labels__name",
-            "assignees__first_name",
-            "-assignees__first_name",
-        ]:
-            issue_queryset = issue_queryset.annotate(
-                max_values=Max(
-                    order_by_param[1::]
-                    if order_by_param.startswith("-")
-                    else order_by_param
-                )
-            ).order_by(
-                "-max_values"
-                if order_by_param.startswith("-")
-                else "max_values"
-            )
         else:
-            issue_queryset = issue_queryset.order_by(order_by_param)
-
-        issues = IssueSerializer(
-            issue_queryset, many=True, fields=fields if fields else None
-        ).data
-        return Response(issues, status=status.HTTP_200_OK)
+            return self.paginate(
+                order_by=order_by_param,
+                request=request,
+                queryset=issue_queryset,
+                on_results=lambda issues: issue_on_results(
+                    group_by=group_by, issues=issues, sub_group_by=sub_group_by
+                ),
+            )
 
 
 class WorkspaceUserPropertiesEndpoint(BaseAPIView):
-    permission_classes = [
-        WorkspaceViewerPermission,
-    ]
+    permission_classes = [WorkspaceViewerPermission]
 
     def patch(self, request, slug):
         workspace_properties = WorkspaceUserProperties.objects.get(
-            user=request.user,
-            workspace__slug=slug,
+            user=request.user, workspace__slug=slug
         )
 
         workspace_properties.filters = request.data.get(
@@ -274,10 +244,7 @@ class WorkspaceUserPropertiesEndpoint(BaseAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def get(self, request, slug):
-        (
-            workspace_properties,
-            _,
-        ) = WorkspaceUserProperties.objects.get_or_create(
+        (workspace_properties, _) = WorkspaceUserProperties.objects.get_or_create(
             user=request.user, workspace__slug=slug
         )
         serializer = WorkspaceUserPropertiesSerializer(workspace_properties)
@@ -289,12 +256,10 @@ class WorkspaceUserProfileEndpoint(BaseAPIView):
         user_data = User.objects.get(pk=user_id)
 
         requesting_workspace_member = WorkspaceMember.objects.get(
-            workspace__slug=slug,
-            member=request.user,
-            is_active=True,
+            workspace__slug=slug, member=request.user, is_active=True
         )
         projects = []
-        if requesting_workspace_member.role >= 10:
+        if requesting_workspace_member.role >= 15:
             projects = (
                 Project.objects.filter(
                     workspace__slug=slug,
@@ -365,8 +330,8 @@ class WorkspaceUserProfileEndpoint(BaseAPIView):
                     "email": user_data.email,
                     "first_name": user_data.first_name,
                     "last_name": user_data.last_name,
-                    "avatar": user_data.avatar,
-                    "cover_image": user_data.cover_image,
+                    "avatar_url": user_data.avatar_url,
+                    "cover_image_url": user_data.cover_image_url,
                     "date_joined": user_data.date_joined,
                     "user_timezone": user_data.user_timezone,
                     "display_name": user_data.display_name,
@@ -377,9 +342,7 @@ class WorkspaceUserProfileEndpoint(BaseAPIView):
 
 
 class WorkspaceUserActivityEndpoint(BaseAPIView):
-    permission_classes = [
-        WorkspaceEntityPermission,
-    ]
+    permission_classes = [WorkspaceEntityPermission]
 
     def get(self, request, slug, user_id):
         projects = request.query_params.getlist("project", [])
@@ -397,6 +360,7 @@ class WorkspaceUserActivityEndpoint(BaseAPIView):
             queryset = queryset.filter(project__in=projects)
 
         return self.paginate(
+            order_by=request.GET.get("order_by", "-created_at"),
             request=request,
             queryset=queryset,
             on_results=lambda issue_activities: IssueActivitySerializer(
@@ -411,8 +375,11 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
         state_distribution = (
             Issue.issue_objects.filter(
+                (
+                    Q(assignees__in=[user_id])
+                    & Q(issue_assignee__deleted_at__isnull=True)
+                ),
                 workspace__slug=slug,
-                assignees__in=[user_id],
                 project__project_projectmember__member=request.user,
                 project__project_projectmember__is_active=True,
             )
@@ -427,8 +394,11 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
         priority_distribution = (
             Issue.issue_objects.filter(
+                (
+                    Q(assignees__in=[user_id])
+                    & Q(issue_assignee__deleted_at__isnull=True)
+                ),
                 workspace__slug=slug,
-                assignees__in=[user_id],
                 project__project_projectmember__member=request.user,
                 project__project_projectmember__is_active=True,
             )
@@ -462,8 +432,11 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
         assigned_issues_count = (
             Issue.issue_objects.filter(
+                (
+                    Q(assignees__in=[user_id])
+                    & Q(issue_assignee__deleted_at__isnull=True)
+                ),
                 workspace__slug=slug,
-                assignees__in=[user_id],
                 project__project_projectmember__member=request.user,
                 project__project_projectmember__is_active=True,
             )
@@ -474,8 +447,11 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
         pending_issues_count = (
             Issue.issue_objects.filter(
                 ~Q(state__group__in=["completed", "cancelled"]),
+                (
+                    Q(assignees__in=[user_id])
+                    & Q(issue_assignee__deleted_at__isnull=True)
+                ),
                 workspace__slug=slug,
-                assignees__in=[user_id],
                 project__project_projectmember__member=request.user,
                 project__project_projectmember__is_active=True,
             )
@@ -485,8 +461,11 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
         completed_issues_count = (
             Issue.issue_objects.filter(
+                (
+                    Q(assignees__in=[user_id])
+                    & Q(issue_assignee__deleted_at__isnull=True)
+                ),
                 workspace__slug=slug,
-                assignees__in=[user_id],
                 state__group="completed",
                 project__project_projectmember__member=request.user,
                 project__project_projectmember__is_active=True,
@@ -509,19 +488,15 @@ class WorkspaceUserProfileStatsEndpoint(BaseAPIView):
 
         upcoming_cycles = CycleIssue.objects.filter(
             workspace__slug=slug,
-            cycle__start_date__gt=timezone.now().date(),
-            issue__assignees__in=[
-                user_id,
-            ],
+            cycle__start_date__gt=timezone.now(),
+            issue__assignees__in=[user_id],
         ).values("cycle__name", "cycle__id", "cycle__project_id")
 
         present_cycle = CycleIssue.objects.filter(
             workspace__slug=slug,
-            cycle__start_date__lt=timezone.now().date(),
-            cycle__end_date__gt=timezone.now().date(),
-            issue__assignees__in=[
-                user_id,
-            ],
+            cycle__start_date__lt=timezone.now(),
+            cycle__end_date__gt=timezone.now(),
+            issue__assignees__in=[user_id],
         ).values("cycle__name", "cycle__id", "cycle__project_id")
 
         return Response(

@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /** @type {import("next").NextConfig} */
 require("dotenv").config({ path: ".env" });
-const { withSentryConfig } = require("@sentry/nextjs");
 
 const nextConfig = {
+  trailingSlash: true,
   reactStrictMode: false,
   swcMinify: true,
   output: "standalone",
@@ -11,55 +11,70 @@ const nextConfig = {
     return [
       {
         source: "/(.*)?",
-        headers: [
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          {
-            key: "Referrer-Policy",
-            value: "origin-when-cross-origin",
-          },
-        ],
+        headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
       },
     ];
   },
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
-    ],
     unoptimized: true,
   },
+  transpilePackages: ["@plane/i18n"],
+  async redirects() {
+    return [
+      {
+        source: "/accounts/sign-up",
+        destination: "/sign-up",
+        permanent: true,
+      },
+      {
+        source: "/sign-in",
+        destination: "/",
+        permanent: true,
+      },
+      {
+        source: "/signin",
+        destination: "/",
+        permanent: true,
+      },
+      {
+        source: "/register",
+        destination: "/sign-up",
+        permanent: true,
+      },
+      {
+        source: "/login",
+        destination: "/",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
+    const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://app.posthog.com";
     const rewrites = [
       {
         source: "/ingest/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
+        destination: `${posthogHost}/static/:path*`,
       },
       {
         source: "/ingest/:path*",
-        destination: "https://us.i.posthog.com/:path*",
+        destination: `${posthogHost}/:path*`,
       },
     ];
     if (process.env.NEXT_PUBLIC_ADMIN_BASE_URL || process.env.NEXT_PUBLIC_ADMIN_BASE_PATH) {
-      const ADMIN_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_BASE_URL || ""
-      const ADMIN_BASE_PATH = process.env.NEXT_PUBLIC_ADMIN_BASE_PATH || ""
-      const GOD_MODE_BASE_URL = ADMIN_BASE_URL + ADMIN_BASE_PATH
+      const ADMIN_BASE_URL = process.env.NEXT_PUBLIC_ADMIN_BASE_URL || "";
+      const ADMIN_BASE_PATH = process.env.NEXT_PUBLIC_ADMIN_BASE_PATH || "";
+      const GOD_MODE_BASE_URL = ADMIN_BASE_URL + ADMIN_BASE_PATH;
+      rewrites.push({
+        source: "/god-mode",
+        destination: `${GOD_MODE_BASE_URL}/`,
+      });
       rewrites.push({
         source: "/god-mode/:path*",
         destination: `${GOD_MODE_BASE_URL}/:path*`,
-      })
+      });
     }
     return rewrites;
   },
 };
 
-if (parseInt(process.env.NEXT_PUBLIC_ENABLE_SENTRY || "0", 10)) {
-  module.exports = withSentryConfig(
-    nextConfig,
-    { silent: true, authToken: process.env.SENTRY_AUTH_TOKEN },
-    { hideSourceMaps: true }
-  );
-} else {
-  module.exports = nextConfig;
-}
+module.exports = nextConfig;

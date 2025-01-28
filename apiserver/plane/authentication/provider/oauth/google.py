@@ -20,7 +20,7 @@ class GoogleOAuthProvider(OauthAdapter):
     scope = "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile"
     provider = "google"
 
-    def __init__(self, request, code=None, state=None):
+    def __init__(self, request, code=None, state=None, callback=None):
         (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) = get_configuration_value(
             [
                 {
@@ -53,7 +53,9 @@ class GoogleOAuthProvider(OauthAdapter):
             "prompt": "consent",
             "state": state,
         }
-        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(url_params)}"
+        auth_url = (
+            f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(url_params)}"
+        )
 
         super().__init__(
             request,
@@ -66,6 +68,7 @@ class GoogleOAuthProvider(OauthAdapter):
             self.userinfo_url,
             client_secret,
             code,
+            callback=callback,
         )
 
     def set_token_data(self):
@@ -83,20 +86,19 @@ class GoogleOAuthProvider(OauthAdapter):
                 "refresh_token": token_response.get("refresh_token", None),
                 "access_token_expired_at": (
                     datetime.fromtimestamp(
-                        token_response.get("expires_in"),
-                        tz=pytz.utc,
+                        token_response.get("expires_in"), tz=pytz.utc
                     )
                     if token_response.get("expires_in")
                     else None
                 ),
                 "refresh_token_expired_at": (
                     datetime.fromtimestamp(
-                        token_response.get("refresh_token_expired_at"),
-                        tz=pytz.utc,
+                        token_response.get("refresh_token_expired_at"), tz=pytz.utc
                     )
                     if token_response.get("refresh_token_expired_at")
                     else None
                 ),
+                "id_token": token_response.get("id_token", ""),
             }
         )
 

@@ -1,14 +1,5 @@
 module.exports = {
   root: true,
-  extends: ["custom"],
+  extends: ["@plane/eslint-config/next.js"],
   parser: "@typescript-eslint/parser",
-  settings: {
-    "import/resolver": {
-      typescript: {},
-      node: {
-        moduleDirectory: ["node_modules", "."],
-      },
-    },
-  },
-  rules: {}
-}
+};
